@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Map View</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-draw/dist/leaflet.draw.css" />
+  <style>
+    .map-container {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 900px;
+      height: 100%;
+    }
+    .attr {
+      position: absolute;
+      left: 950px;
+      top: 0;
+      width: 300px;
+      height: 100%;
+      border: 1px solid #000;
+      background: #ccc;
+    }
+    .attr_item {
+      width: 300px;
+      height: 50px;
+      margin: 20px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="map-container" id="map-container"></div>
+
+  <div class="attr">
+    <div class="attr_item">
+      <label for="fid">fid:</label>
+      <input type="text" id="fid" />
+    </div>
+    <div class="attr_item">
+        <label for="cnt">cnt:</label>
+        <input type="text" id="cnt" />
+      </div>
+    <div class="attr_item">
+      <label for="name">name:</label>
+      <input type="text" id="name" />
+    </div>
+    <div class="attr_item">
+      <label for="pac">Pac:</label>
+      <input type="text" id="pac" />
+    </div>
+    <div class="attr_item">
+      <label for="pop">pop:</label>
+      <input type="text" id="pop" />
+    </div>
+    <button onclick="upload()">添加</button>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-draw/dist/leaflet.draw.js"></script>
+  <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+  <script>
+    var map = null;
+    var drawnItems = null;
+    var GaodeUrl = "http://webrd01.is.autonavi.com/appmaptile?x={x}&y={y}&z={z}&lang=zh_cn&size=1&scale=1&style=8";
+    const WMTSUrl = "http://localhost:8084/geoserver/WUHAN/wms?";
+    var WMSOption = {
+      layers: 'WUHAN:areawh',
+      format: 'image/png',
+      transparent: true,
+    };
+
+    function upload() {
+      var fid = document.getElementById('fid').value;
+      var name = document.getElementById('name').value;
+      var pac = document.getElementById('pac').value;
+      var pop = document.getElementById('pop').value;
+      var cnt = document.getElementById('cnt').value;
+      var latlngs = drawnItems.getLayers()[0].editing.latlngs[0][0];
+      var coord_txt = '';
+      for (var i = 0; i < latlngs.length; i++) {
+        coord_txt += latlngs[i]['lng'].toFixed(6) + ',' + latlngs[i]['lat'].toFixed(6) + ' ';
+      }
+      coord_txt += latlngs[0]['lng'].toFixed(6) + ',' + latlngs[0]['lat'].toFixed(6);
+      var gml_txt = '<?xml version="1.0" encoding="UTF8"?>\n\
+<wfs:Transaction service="WFS" version="1.0.0"\n\
+               xmlns:wfs="http://www.opengis.net/wfs"\n\
+               xmlns:WUHAN="http://www.WUHAN001.com"\n\
+               xmlns:gml="http://www.opengis.net/gml"\n\
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"\n\
+               xsi:schemaLocation="http://www.opengis.net/wfs http://schemas.opengis.net/wfs/1.0.0/WFS-transaction.xsd http://www.WUHAN001 http://localhost:8084/geoserver/wfs/DescribeFeatureType?typename=WUHAN:areawh">\n\
+<wfs:Insert>\n\
+  <WUHAN:areawh>\n\
+    <WUHAN:the_geom>\n\
+      <gml:MultiPolygon srsName="http://www.opengis.net/gml/srs/epsg.xml#4326"><gml:polygonMember><gml:Polygon><gml:outerBoundaryIs><gml:LinearRing><gml:coordinates xmlns:gml="http://www.opengis.net/gml" decimal="." cs="," ts=" ">' + coord_txt + '</gml:coordinates></gml:LinearRing></gml:outerBoundaryIs></gml:Polygon></gml:polygonMember></gml:MultiPolygon>\n\
+    </WUHAN:the_geom>\n\
+    <WUHAN:name>' + name + '</WUHAN:name>\n\
+    <WUHAN:pac>' + pac + '</WUHAN:pac>\n\
+    <WUHAN:pop>' + pop + '</WUHAN:pop>\n\
+    <WUHAN:cnt>' + pop + '</WUHAN:cnt>\n\
+  </WUHAN:areawh>\n\
+</wfs:Insert>\n\
+</wfs:Transaction>\n\
+';
+      var config = {
+        method: 'post',
+        url: 'apis/geoserver/wfs',
+        headers: {
+          'Content-Type': 'text/xml;charset=UTF-8'
+        },
+        data: gml_txt
+      };
+      axios(config)
+        .then(function(response) {
+          console.log(response.data);
+        })
+        .catch(function(error) {
+          console.log(error);
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+      map = L.map("map-container");
+      L.tileLayer(GaodeUrl, {
+        maxZoom: 24,
+      }).addTo(map);
+      map.setView([30.542335,114.371713], 9);
+      L.tileLayer.wms(WMTSUrl, WMSOption).addTo(map);
+      drawnItems = L.featureGroup().addTo(map);
+      map.addControl(new L.Control.Draw({
+        edit: {
+          featureGroup: drawnItems,
+          poly: {
+            allowIntersection: false
+          }
+        },
+        draw: {
+          polygon: {
+            allowIntersection: false,
+            showArea: false
+          }
+        }
+      }));
+      map.on(L.Draw.Event.CREATED, function(event) {
+        var layer = event.layer;
+        drawnItems.addLayer(layer);
+      });
+    });
+  </script>
+</body>
+</html>
